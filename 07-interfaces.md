@@ -29,6 +29,8 @@ graph LR
 
 The CAN bus requires 2×120 Ω termination (60 Ω) in the flight harness; it is not built into the OBC or the Dock. **HW**
 
+The bus runs at **1000 kbps** — the P60 default, set via its `can_speed` parameter — and the OBC's CSP/CAN driver must match it. A mismatched rate fails *silently*: no error is raised and no data arrives, so a rate mismatch presents exactly like a dead device. **CODE** (`eps_m.c`)
+
 ## 7.2 UART allocation
 
 Verified against the OBC Type I User Manual v4.18 Table 2, the ESPS driver config, and the build configuration.
@@ -58,7 +60,7 @@ UART7 (PF6/PF7) and SPI5 (PF6–PF9) share MCU pins and are mutually exclusive; 
 
 ## 7.3 P60 EPS — rparam interface
 
-`eps_m` talks GomSpace rparam over CSP/CAN to node 4, **CSP port 7** (`csp_transaction_w_opts()`). Addresses are big-endian (`csp_hton16`); U16 replies need `csp_ntoh16`, U8 replies do not; the reply echoes the requested address (a U16 read returns 14 bytes). Housekeeping is table 4; the parameter/control table is table 1.
+`eps_m` talks GomSpace rparam over CSP/CAN to node 4, **CSP port 7** (`csp_transaction_w_opts()`). Addresses are big-endian (`csp_hton16`); U16 replies need `csp_ntoh16`, U8 replies do not; the reply echoes the requested address (a U16 read returns 14 bytes). Housekeeping is table 4; the parameter/control table is table 1. Every request header carries a fixed "magic" checksum **`0x0bb0`** (`EPS_M_RPARAM_MAGIC`, big-endian), which tells the P60 to skip its server-side CRC validation — a deliberate simplification for a hand-built client that does not compute the vendor checksum. **CODE** (`eps_m.c`)
 
 **Table 4 (housekeeping) — verified addresses:**
 

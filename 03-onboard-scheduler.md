@@ -11,6 +11,26 @@ The autonomous time-tagged sequencing the mission needs (a RITA session is a seq
 
 The OSS executes time-tagged entries from an uploaded `.sch` file at one-second precision. A scheduled slot can dispatch a Function-Protocol command, a CP command, a CSP command (node + port + priority + timeout), or a MicroPython script by name. Output is logged to a `.slog` file. Because it can dispatch CSP commands directly, once CSP-over-CAN was proven on the power subsystem, timed CSP sequences can be scheduled to any CAN device — including timed P60 power sequencing.
 
+The dispatch loop — armed once from the ground, then walking the slot chain one second at a time until end-of-file (firmware `onboard_sched.c`, the `do { … } while (next == entry_res)` loop):
+
+```mermaid
+flowchart TD
+    A[Ground: upload .sch<br/>set_active_schedule name<br/>set_scheduler_state 0 = RUNNING] --> B[Read slot at active offset]
+    B --> C{Zero-byte read?<br/>next == file size}
+    C -->|yes| Z[End of schedule<br/>stop cleanly, no error]
+    C -->|no| D{Timestamp due<br/>this second?}
+    D -->|past-due| E[Skip: consume slot,<br/>do NOT execute, never back-fill]
+    D -->|due now| F[Dispatch the slot]
+    F --> G{flags}
+    G -->|0x00| H[FP / CP / CSP command<br/>→ comm gateway]
+    G -->|0x01| I[MicroPython script<br/>one at a time, timeout-killed]
+    H --> J[Log result → .slog]
+    I --> J
+    E --> K[Advance to next offset]
+    J --> K
+    K --> B
+```
+
 ## 3.2 The `.sch` binary format (verified against firmware)
 
 - **12-byte file header:** `"SCHED\0"` + format version (2 bytes) + next-free-offset (uint32 LE).
@@ -32,4 +52,4 @@ The format above was pinned by reading it against the firmware's own parser, so 
 
 **Multi-slot chaining:** bench-verified **2026-07-21**. A two-slot schedule (a CP command at T+120 s, then a MicroPython script at T+150 s) was run with the ground tool: both slots fired (both sequence identifiers present in the `.slog`), the scheduler followed the `next` pointer from the first slot to the second, and after the second slot it stopped cleanly on a zero-byte read with no spurious error. This proved the three properties a single slot cannot: pointer traversal, clean end-of-file termination, and correct refresh of a past-due timestamp.
 
-> **Two honest caveats.** The multi-slot run used the 2026-06-30 diagnostic image (the same firmware line the single-slot test passed on), not the final build, so it should be re-confirmed on the current firmware; and its evidence (the schedule file and decoded log) is preserved in the handoff materials but was not committed to the repository.
+> **Two honest caveats.** The multi-slot run used the 2026-06-30 diagnostic image (the same firmware line the single-slot test passed on), not the final build. Since the onboard scheduler is unchanged vendor SDK code between the two builds and the committed HEAD boots clean ([§9.2](09-development.md)), the result holds on the delivered firmware — a repeat run would confirm rather than extend it. Its evidence (the schedule file and decoded log) is preserved in the handoff materials but was not committed to the repository.

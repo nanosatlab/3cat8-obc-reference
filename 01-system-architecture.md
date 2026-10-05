@@ -72,7 +72,7 @@ The safe-battery threshold is held in non-volatile configuration and is ground-a
 
 ## 1.3 Safety mechanisms
 
-**FDIR (fault detection, isolation, recovery).** Each fault is owned by exactly one agent. A major-level fault automatically triggers a transition to SAFE. The battery-voltage fault is owned by `eps_ctrl`, never by `eps_m`.
+**FDIR (fault detection, isolation, recovery).** Each fault is owned by exactly one agent. A major-level fault automatically triggers a transition to SAFE. The battery-voltage fault is owned by `eps_ctrl`, never by `eps_m` — though `eps_m` does own one fault of its own, a P60-communication-failure fault it raises when the Dock stops answering on the bus (see [§2](02-power-subsystem.md)).
 
 > **Known gap (safety).** On 3Cat-8 as built, that low-battery fault is *inert*: the check reads a DataCache entry the active `eps_m` driver never writes, so its guard is never satisfied and the safe-mode transition never fires. The ownership is correct; the mechanism is not wired to the active driver's telemetry. Full detail and a data-flow diagram are in [§8](08-system-findings.md).
 

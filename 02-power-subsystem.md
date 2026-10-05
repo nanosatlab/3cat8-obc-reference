@@ -18,12 +18,37 @@ The rparam handling is modelled on GomSpace's own rparam client (from the P60 SD
 The driver speaks GomSpace **rparam** over CSP/CAN to the P60 Dock:
 
 - **Transport:** `csp_transaction_w_opts()` to **CSP node 4** (the Dock), **CSP port 7** (the OBC's own libcsp rparam service port). This is distinct from port 10, which is the path GomSpace's own `power` GOSH client uses to reach PDU channels through the Dock — the two are not interchangeable.
-- **Wire format:** addresses are big-endian (`csp_hton16`); U16 replies need `csp_ntoh16`, U8 replies need no swap. The reply echoes the 2-byte requested address in every payload (a U16 read returns 14 bytes, not 12).
+- **Wire format:** addresses are big-endian (`csp_hton16`); U16 replies need `csp_ntoh16`, U8 replies need no swap. The reply echoes the 2-byte requested address in every payload (a U16 read returns 14 bytes, not 12). Every request header carries the fixed magic checksum `0x0bb0` that skips the P60's server-side CRC validation; the bus runs at 1000 kbps and a mismatched rate fails silently (see [§7](07-interfaces.md)).
 - **Housekeeping (table 4), every 10 s:** battery voltage `0x0074` (U16, mV), board temperature `0x0044` (I16, 0.1 °C, signed), battery current `0x0078` (I16, mA), battery mode `0x0056` (U8: 1=Crit 2=Safe 3=Normal 4=Full). Extended reads cover heater state and charge/discharge accumulators; a latchup scan runs on a slower cadence.
 - **DataCache output:** each poll writes `dc_set_eps_0_data()` (`DC_DID_EPS_0_DATA`) with voltage, current, and temperature.
+- **Fault reporting:** when the P60 stops answering on the bus, `eps_m` raises `FDIR_FAULT_EPS_PDM_CMD_EXEC_FAILURE` (agent `FDIR_AGENT_EPS_M`) and clears it on recovery — so a dead power link surfaces as a visible fault rather than silently stale telemetry. This is the one fault `eps_m` owns; the low-battery safing fault is owned separately by `eps_ctrl` (see [§1.3](01-system-architecture.md) and [§8](08-system-findings.md)).
 - **Channel control (table 1):** `eps_m_set_channel_output()` writes `out_en[i]` at **`0x0068 + i`**. Channel-enable *readback* is a separate table-4 read at `0x0034 + i`.
 
 The P60 is a **single CSP node** (node 4 = Dock); the PDU and ACU are not separate nodes — the Dock aggregates both. Node 3 does not exist on this bus; node 1 is the OBC's own placeholder identity and must not be targeted.
+
+One 10-second poll cycle, and the two outcomes:
+
+```mermaid
+sequenceDiagram
+    participant D as eps_m driver
+    participant C as csp_transaction_w_opts
+    participant P as P60 Dock (node 4, port 7)
+    participant DC as DataCache
+    participant F as FDIR
+    loop every 10 s
+        D->>C: rparam GET (addr big-endian, magic 0x0bb0)
+        C->>P: CSP/CAN request @ 1000 kbps
+        alt Dock answers
+            P-->>C: reply (echoes 2-byte addr; U16 read = 14 B)
+            C-->>D: payload
+            D->>D: byte-swap U16 (csp_ntoh16), scale
+            D->>DC: dc_set_eps_0_data() → DC_DID_EPS_0_DATA
+            D->>F: clear FDIR_FAULT_EPS_PDM_CMD_EXEC_FAILURE
+        else bus quiet / no reply
+            D->>F: raise FDIR_FAULT_EPS_PDM_CMD_EXEC_FAILURE (agent EPS_M)
+        end
+    end
+```
 
 ## 2.3 Addresses are the live-device values, not the manual's
 
